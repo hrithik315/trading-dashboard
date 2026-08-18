@@ -1,137 +1,275 @@
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from strategy_engine import fetch_stock_data, calculate_technical_indicators, generate_trade_signal, STOCK_MAP
+from strategy_engine import (
+    STOCK_DIRECTORY, 
+    fetch_clean_market_data, 
+    calculate_indicators, 
+    analyze_institutional_logic, 
+    fetch_live_news_sentiment
+)
 
-st.set_page_config(page_title="Sancheti Trading AI", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+# App Configuration
+st.set_page_config(page_title="Angel Pro Terminal | Sancheti", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
-# Ultra Clean Custom Styling (Mobile & Desktop Friendly)
+# Angel One Inspired Clean Dark Styling
 st.markdown("""
 <style>
-    /* Dark Minimalist Theme */
-    .stApp { background-color: #0E1117; color: #E0E3EB; }
-    .card-box {
-        background: #161B22;
-        border: 1px solid #30363D;
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+    * { font-family: 'Plus Jakarta Sans', sans-serif; }
+    
+    .stApp { background-color: #0B0E14; color: #E1E7EC; }
+    
+    /* Top Bar & Cards */
+    .angel-card {
+        background: #141923;
+        border: 1px solid #1E2638;
         border-radius: 10px;
         padding: 16px;
         margin-bottom: 12px;
     }
-    .badge {
+    .metric-sub { font-size: 11px; color: #8F9CA9; font-weight: 600; text-transform: uppercase; }
+    .metric-main { font-size: 20px; font-weight: 700; color: #FFFFFF; margin-top: 2px; }
+    
+    /* Pills & Status */
+    .status-pill {
         display: inline-block;
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-weight: 700;
-        font-size: 14px;
-        letter-spacing: 0.5px;
-    }
-    .scenario-card {
-        background: #1B212C;
-        border-left: 4px solid #388BFD;
-        padding: 12px;
+        padding: 5px 12px;
         border-radius: 6px;
+        font-weight: 700;
+        font-size: 12px;
+    }
+    
+    /* News Box */
+    .news-box {
+        background: #141923;
+        border-left: 3px solid #2962FF;
+        border-top: 1px solid #1E2638;
+        border-right: 1px solid #1E2638;
+        border-bottom: 1px solid #1E2638;
+        border-radius: 6px;
+        padding: 12px;
         margin-bottom: 10px;
     }
-    .scenario-card.buy { border-left-color: #00C087; }
-    .scenario-card.dip { border-left-color: #388BFD; }
-    .scenario-card.exit { border-left-color: #F2994A; }
-    .scenario-card.trap { border-left-color: #EB5757; }
     
-    .metric-title { font-size: 12px; color: #8B949E; margin-bottom: 2px; }
-    .metric-val { font-size: 18px; font-weight: bold; }
+    /* Custom Tab Styling */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; border-bottom: 1px solid #1E2638; }
+    .stTabs [data-baseweb="tab"] {
+        background-color: transparent;
+        color: #8F9CA9;
+        font-weight: 600;
+        font-size: 14px;
+        padding: 8px 16px;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #387ED1 !important;
+        border-bottom: 2px solid #387ED1 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 Sancheti Trading AI")
+# ----------------- SESSION LOGIN PROTECTION -----------------
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = True  # Default login bypass for ease (Can add PIN)
 
-# Sidebar - Dropdown Auto Search like Angel One
-st.sidebar.markdown("### 🔍 Search Stock")
-stock_options = list(STOCK_MAP.keys()) + ["-- Custom Search --"]
-selected_stock = st.sidebar.selectbox("Type to Search Stock:", options=stock_options, index=0)
+# ----------------- SIDEBAR CONTROLS -----------------
+with st.sidebar:
+    st.markdown("### ⚡ **Angel Pro Scanner**")
+    st.caption("Clean Institutional Terminal")
+    
+    # Watchlist Dropdown
+    stock_names = list(STOCK_DIRECTORY.keys()) + ["-- Custom Ticker --"]
+    selected_name = st.selectbox("Select Asset / Watchlist:", options=stock_names, index=0)
+    
+    if selected_name == "-- Custom Ticker --":
+        ticker = st.text_input("Enter NSE Code:", value="TATAMOTORS").upper().strip()
+    else:
+        ticker = STOCK_DIRECTORY[selected_name]
+        
+    timeframe = st.selectbox(
+        "Timeframe / Interval:",
+        ["15 Minute (Intraday)", "5 Minute (Scalping)", "30 Minute", "1 Hour (Swing)", "Daily (Positional)"],
+        index=0
+    )
+    
+    tf_map = {
+        "5 Minute (Scalping)": ("1mo", "5m"),
+        "15 Minute (Intraday)": ("1mo", "15m"),
+        "30 Minute": ("1mo", "30m"),
+        "1 Hour (Swing)": ("3mo", "60m"),
+        "Daily (Positional)": ("1y", "1d")
+    }
+    range_str, interval = tf_map[timeframe]
+    
+    st.divider()
+    st.markdown("💡 **Pro Tip:** Smart Money enters on Support retests with volume confirmation.")
 
-if selected_stock == "-- Custom Search --":
-    symbol = st.sidebar.text_input("Enter NSE Ticker:", value="TATAMOTORS").upper().strip()
-else:
-    symbol = STOCK_MAP[selected_stock]
-
-timeframe = st.sidebar.selectbox("Timeframe", ["Daily (1D)", "Weekly (1W)", "1 Hour (1H)"], index=0)
-period_map = {"Daily (1D)": ("6mo", "1d"), "Weekly (1W)": ("2y", "1wk"), "1 Hour (1H)": ("1mo", "1h")}
-period, interval = period_map[timeframe]
-
-# Fetch Data
-raw_df = fetch_stock_data(symbol, period=period, interval=interval)
+# ----------------- DATA ENGINE -----------------
+with st.spinner("Connecting to Live NSE Feed..."):
+    raw_df, meta = fetch_clean_market_data(ticker, interval=interval, range_str=range_str)
 
 if raw_df.empty:
-    st.error(f"Stock '{symbol}' data not available. Please pick another stock from search.")
+    st.error(f"Could not load data for '{ticker}'. Please select another stock from the watchlist.")
 else:
-    df = calculate_technical_indicators(raw_df)
-    res = generate_trade_signal(df)
+    df = calculate_indicators(raw_df)
+    res = analyze_institutional_logic(df, ticker)
+    news_feed = fetch_live_news_sentiment(ticker)
     
-    # 1. Top Compact Header
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.markdown(f"<div class='card-box'><div class='metric-title'>STOCK / LTP</div><div class='metric-val'>₹{res['ltp']} <span style='font-size:13px; color:#58A6FF;'>({symbol})</span></div></div>", unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"<div class='card-box'><div class='metric-title'>20 EMA (Trend)</div><div class='metric-val'>₹{res['ema20']}</div></div>", unsafe_allow_html=True)
-    with col3:
-        st.markdown(f"<div class='card-box'><div class='metric-title'>RSI (14)</div><div class='metric-val'>{res['rsi']}</div></div>", unsafe_allow_html=True)
-    with col4:
-        st.markdown(f"<div class='card-box'><div class='metric-title'>Key Resistance</div><div class='metric-val' style='color:#EB5757;'>₹{res['resistance']}</div></div>", unsafe_allow_html=True)
-    with col5:
-        st.markdown(f"<div class='card-box'><div class='metric-title'>Key Support</div><div class='metric-val' style='color:#00C087;'>₹{res['support']}</div></div>", unsafe_allow_html=True)
+    prev_close = float(df.iloc[-2]['Close']) if len(df) > 1 else res['ltp']
+    chg = res['ltp'] - prev_close
+    chg_pct = (chg / prev_close) * 100 if prev_close else 0
+    chg_color = "#089981" if chg >= 0 else "#F23645"
 
-    # 2. Main Analysis Section
-    left_col, right_col = st.columns([1, 1.2])
-    
-    with left_col:
-        st.markdown("### 🎯 Signal & Candle Reading")
-        st.markdown(f"<div class='badge' style='background:{res['badge_color']}; color:white;'>{res['verdict']} (Score: {res['score']}/100)</div>", unsafe_allow_html=True)
-        st.write("")
-        
-        cd = res['candle_data']
+    # ----------------- TOP TICKER PULSE BAR -----------------
+    c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1, 1, 1])
+    with c1:
         st.markdown(f"""
-        <div class='card-box'>
-            <div style='font-size: 15px; font-weight: 600; color: #58A6FF;'>Candle Pattern: {cd['pattern']}</div>
-            <div style='color: #8B949E; margin-top: 5px;'>{cd['detail']}</div>
+        <div class='angel-card'>
+            <div class='metric-sub'>Asset | Exchange</div>
+            <div class='metric-main'>NSE:{ticker} <span style='font-size:14px; color:{chg_color};'>₹{res['ltp']:.2f} ({chg_pct:+.2f}%)</span></div>
         </div>
         """, unsafe_allow_html=True)
-        
+    with c2:
         st.markdown(f"""
-        <div class='card-box'>
-            <div style='font-weight:600; margin-bottom:8px;'>🎯 Recommended Levels:</div>
-            <div>• <b>Stop Loss:</b> ₹{res['stop_loss']}</div>
-            <div>• <b>Target 1:</b> ₹{res['target_1']}</div>
-            <div>• <b>Target 2:</b> ₹{res['target_2']}</div>
+        <div class='angel-card'>
+            <div class='metric-sub'>Smart Money Score</div>
+            <div class='metric-main' style='color:{res['theme_color']};'>{res['score']} / 100</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"""
+        <div class='angel-card'>
+            <div class='metric-sub'>20 EMA (Momentum)</div>
+            <div class='metric-main'>₹{res['ema20']:.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c4:
+        st.markdown(f"""
+        <div class='angel-card'>
+            <div class='metric-sub'>Major Supply (Res)</div>
+            <div class='metric-main' style='color:#F23645;'>₹{res['resistance']:.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c5:
+        st.markdown(f"""
+        <div class='angel-card'>
+            <div class='metric-sub'>Major Demand (Sup)</div>
+            <div class='metric-main' style='color:#089981;'>₹{res['support']:.2f}</div>
         </div>
         """, unsafe_allow_html=True)
 
-    with right_col:
-        st.markdown("### 🧭 4 Key Action Scenarios")
-        for s in res['scenarios']:
-            tag_class = s['tag'].lower()
+    # ----------------- CLEAN TABS INTERFACE (ANGEL ONE STYLE) -----------------
+    tab_chart, tab_smart, tab_news, tab_orders = st.tabs([
+        "📊 Live Chart", 
+        "🧠 Smart Money & Traps", 
+        "📰 News & Sentiment", 
+        "🎯 Order Levels & SL"
+    ])
+
+    # 1. TAB: PRO CHART
+    with tab_chart:
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.03,
+            row_heights=[0.75, 0.25]
+        )
+        
+        # Candles
+        fig.add_trace(go.Candlestick(
+            x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+            name="Price",
+            increasing_line_color='#089981', increasing_fillcolor='#089981',
+            decreasing_line_color='#F23645', decreasing_fillcolor='#F23645',
+            line=dict(width=1.2)
+        ), row=1, col=1)
+        
+        # EMAs
+        fig.add_trace(go.Scatter(x=df.index, y=df['EMA_20'], line=dict(color='#2962FF', width=1.5), name="20 EMA"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['EMA_50'], line=dict(color='#FF9800', width=1.5), name="50 EMA"), row=1, col=1)
+        
+        # Support & Resistance Levels
+        fig.add_hline(y=res['resistance'], line_dash="dash", line_color="#F23645", line_width=1.2, annotation_text=f"Supply ₹{res['resistance']:.2f}", row=1, col=1)
+        fig.add_hline(y=res['support'], line_dash="dash", line_color="#089981", line_width=1.2, annotation_text=f"Demand ₹{res['support']:.2f}", row=1, col=1)
+        
+        # RSI
+        fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='#AB47BC', width=1.5), name="RSI (14)"), row=2, col=1)
+        fig.add_hline(y=70, line_dash="dot", line_color="#F23645", row=2, col=1)
+        fig.add_hline(y=30, line_dash="dot", line_color="#089981", row=2, col=1)
+        
+        fig.update_layout(
+            height=540,
+            plot_bgcolor="#0B0E14",
+            paper_bgcolor="#0B0E14",
+            xaxis_rangeslider_visible=False,
+            margin=dict(l=10, r=10, t=10, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#8F9CA9", size=11)),
+            xaxis=dict(gridcolor="#161B26", showgrid=True),
+            yaxis=dict(gridcolor="#161B26", showgrid=True, side="right"),
+            xaxis2=dict(gridcolor="#161B26", showgrid=True),
+            yaxis2=dict(gridcolor="#161B26", showgrid=True, side="right", range=[0, 100])
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # 2. TAB: SMART MONEY INSIGHTS & TRAPS
+    with tab_smart:
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            st.markdown("#### 🏛️ Institutional Setup")
             st.markdown(f"""
-            <div class='scenario-card {tag_class}'>
-                <div style='font-weight:bold; font-size:14px;'>{s['title']} — <span style='color:#58A6FF;'>{s['level']}</span></div>
-                <div style='font-size:13px; color:#C9D1D9; margin-top:4px;'>{s['desc']}</div>
+            <div class='angel-card'>
+                <div style='font-size:14px; font-weight:700; color:{res['theme_color']};'>{res['sentiment']}</div>
+                <div style='color:#C5D1DE; font-size:13px; margin-top:8px;'>
+                    • <b>Action Verdict:</b> {res['action']}<br>
+                    • <b>RSI Momentum:</b> {res['rsi']:.1f} (Neutral 45-65, Reversal &lt;30 / &gt;70)<br>
+                    • <b>Volume Footprint:</b> {'🚨 Heavy institutional volume' if res['volume_surge'] else 'Normal standard liquidity'}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col_s2:
+            st.markdown("#### 🪤 Retail Trap Scanner")
+            st.markdown(f"""
+            <div class='angel-card' style='border-left: 4px solid #FF9800;'>
+                <div style='font-size:13px; font-weight:600; color:#FFFFFF;'>Trap Alert Detection:</div>
+                <div style='font-size:13px; color:#C5D1DE; margin-top:6px;'>{res['trap_alert']}</div>
             </div>
             """, unsafe_allow_html=True)
 
-    # 3. Clean Interactive Chart
-    st.markdown("### 📊 Interactive Technical Chart")
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.75, 0.25])
-    
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA_20'], line=dict(color='#2962FF', width=1.5), name="20 EMA"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA_50'], line=dict(color='#FF9800', width=1.5), name="50 EMA"), row=1, col=1)
-    
-    # S/R Horizontal Lines
-    fig.add_hline(y=res['resistance'], line_dash="dash", line_color="#EB5757", annotation_text="Resistance", row=1, col=1)
-    fig.add_hline(y=res['support'], line_dash="dash", line_color="#00C087", annotation_text="Support", row=1, col=1)
-    
-    # RSI Subplot
-    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='#AB47BC', width=1.5), name="RSI (14)"), row=2, col=1)
-    fig.add_hline(y=70, line_dash="dot", line_color="gray", row=2, col=1)
-    fig.add_hline(y=30, line_dash="dot", line_color="gray", row=2, col=1)
-    
-    fig.update_layout(height=520, xaxis_rangeslider_visible=False, template="plotly_dark", margin=dict(l=5, r=5, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    # 3. TAB: LIVE NEWS & SENTIMENT
+    with tab_news:
+        st.markdown("#### 📰 Taaza News & Catalyst Impact")
+        for item in news_feed:
+            st.markdown(f"""
+            <div class='news-box'>
+                <div style='display:flex; justify-content:space-between; align-items:center;'>
+                    <span style='font-size:11px; color:#8F9CA9; font-weight:600;'>{item['publisher']}</span>
+                    <span style='font-size:12px; font-weight:700;'>{item['badge']}</span>
+                </div>
+                <div style='font-size:14px; font-weight:600; color:#FFFFFF; margin-top:5px;'>
+                    <a href='{item['link']}' target='_blank' style='color:#E1E7EC; text-decoration:none;'>{item['title']}</a>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # 4. TAB: ORDERS & RISK-REWARD PAD
+    with tab_orders:
+        o1, o2 = st.columns(2)
+        with o1:
+            st.markdown("#### 🛒 Execution Levels")
+            st.markdown(f"""
+            <div class='angel-card'>
+                <div style='font-size:13px; margin-bottom:6px;'><b>Safe Pullback Entry:</b> Near ₹{max(res['ema20'], res['support']):.2f}</div>
+                <div style='font-size:13px; margin-bottom:6px;'><b>Aggressive Breakout:</b> Above ₹{res['resistance'] * 1.002:.2f}</div>
+                <div style='font-size:13px; color:#F23645; margin-bottom:6px;'><b>Strict Stop Loss:</b> ₹{res['sl']:.2f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with o2:
+            st.markdown("#### 🎯 Target Matrices")
+            st.markdown(f"""
+            <div class='angel-card'>
+                <div style='font-size:13px; color:#089981; margin-bottom:6px;'><b>Target 1 (1.5R):</b> ₹{res['t1']:.2f}</div>
+                <div style='font-size:13px; color:#089981; margin-bottom:6px;'><b>Target 2 (2.5R Supply):</b> ₹{res['t2']:.2f}</div>
+                <div style='font-size:12px; color:#8F9CA9;'>Always trail stop-loss to cost once Target 1 is hit.</div>
+            </div>
+            """, unsafe_allow_html=True)
