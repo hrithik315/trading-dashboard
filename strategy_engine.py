@@ -2,6 +2,60 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
+# Popular Stock Directory with friendly names
+STOCK_MAP = {
+    "TATA MOTORS (TATAMOTORS)": "TATAMOTORS",
+    "RELIANCE IND. (RELIANCE)": "RELIANCE",
+    "HDFC BANK (HDFCBANK)": "HDFCBANK",
+    "ICICI BANK (ICICIBANK)": "ICICIBANK",
+    "INFOSYS (INFY)": "INFY",
+    "STATE BANK OF INDIA (SBIN)": "SBIN",
+    "TATA CONSULTANCY (TCS)": "TCS",
+    "TATA STEEL (TATASTEEL)": "TATASTEEL",
+    "TATA POWER (TATAPOWER)": "TATAPOWER",
+    "ITC LTD (ITC)": "ITC",
+    "BHARTI AIRTEL (BHARTIARTL)": "BHARTIARTL",
+    "LARSEN & TOUBRO (LT)": "LT",
+    "KOTAK MAHINDRA (KOTAKBANK)": "KOTAKBANK",
+    "AXIS BANK (AXISBANK)": "AXISBANK",
+    "HINDUSTAN UNILEVER (HINDUNILVR)": "HINDUNILVR",
+    "BAJAJ FINANCE (BAJFINANCE)": "BAJFINANCE",
+    "BAJAJ FINSERV (BAJAJFINSV)": "BAJAJFINSV",
+    "MARUTI SUZUKI (MARUTI)": "MARUTI",
+    "MAHINDRA & MAHINDRA (M&M)": "M&M",
+    "SUN PHARMA (SUNPHARMA)": "SUNPHARMA",
+    "ASIAN PAINTS (ASIANPAINT)": "ASIANPAINT",
+    "TITAN COMPANY (TITAN)": "TITAN",
+    "ADANI ENTERPRISES (ADANIENT)": "ADANIENT",
+    "ADANI PORTS (ADANIPORTS)": "ADANIPORTS",
+    "ADANI POWER (ADANIPOWER)": "ADANIPOWER",
+    "NTPC (NTPC)": "NTPC",
+    "POWER GRID (POWERGRID)": "POWERGRID",
+    "COAL INDIA (COALINDIA)": "COALINDIA",
+    "ONGC (ONGC)": "ONGC",
+    "WIPRO (WIPRO)": "WIPRO",
+    "HCL TECH (HCLTECH)": "HCLTECH",
+    "TECH MAHINDRA (TECHM)": "TECHM",
+    "ULTRA TECH CEMENT (ULTRACEMCO)": "ULTRACEMCO",
+    "GRASIM IND. (GRASIM)": "GRASIM",
+    "JSW STEEL (JSWSTEEL)": "JSWSTEEL",
+    "HINDALCO (HINDALCO)": "HINDALCO",
+    "VEDANTA (VEDL)": "VEDL",
+    "ZOMATO (ZOMATO)": "ZOMATO",
+    "JIO FINANCIAL (JIOFIN)": "JIOFIN",
+    "PAYTM (PAYTM)": "PAYTM",
+    "IRCTC (IRCTC)": "IRCTC",
+    "HAL (HAL)": "HAL",
+    "BEL (BEL)": "BEL",
+    "BHEL (BHEL)": "BHEL",
+    "REC LTD (RECLTD)": "RECLTD",
+    "PFC (PFC)": "PFC",
+    "DLF LTD (DLF)": "DLF",
+    "TRENT (TRENT)": "TRENT",
+    "VARUN BEVERAGES (VBL)": "VBL",
+    "SUZLON ENERGY (SUZLON)": "SUZLON"
+}
+
 def fetch_stock_data(ticker_symbol: str, period: str = "6mo", interval: str = "1d") -> pd.DataFrame:
     ticker = ticker_symbol.strip().upper().replace(" ", "")
     candidates = [f"{ticker}.NS", f"{ticker}.BO", ticker]
@@ -22,10 +76,9 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df = df.copy()
     
-    # EMAs
+    # Fast / Slow Moving Averages
     df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
     df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
-    df['EMA_200'] = df['Close'].ewm(span=200, adjust=False).mean()
     
     # RSI (14)
     delta = df['Close'].diff()
@@ -34,22 +87,14 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     rs = gain / loss.replace(0, np.nan)
     df['RSI'] = (100 - (100 / (1 + rs))).fillna(50)
     
-    # MACD (12, 26, 9)
-    exp12 = df['Close'].ewm(span=12, adjust=False).mean()
-    exp26 = df['Close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = exp12 - exp26
-    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
-
-    # Volume & Volatility (ATR)
-    df['Vol_SMA_20'] = df['Volume'].rolling(window=20).mean()
+    # Volatility (ATR)
     high_low = df['High'] - df['Low']
     high_close = (df['High'] - df['Close'].shift()).abs()
     low_close = (df['Low'] - df['Close'].shift()).abs()
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     df['ATR_14'] = tr.rolling(window=14).mean()
 
-    # Dynamic Support & Resistance (Swing Pivots)
+    # Dynamic Support & Resistance
     df['Swing_High_20'] = df['High'].rolling(window=20).max()
     df['Swing_Low_20'] = df['Low'].rolling(window=20).min()
     
@@ -57,7 +102,7 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 def identify_candlestick_patterns(df: pd.DataFrame) -> dict:
     if len(df) < 3:
-        return {"pattern": "Standard Candle", "bias": "Neutral"}
+        return {"pattern": "Neutral Base", "bias": "Neutral", "detail": "Normal price movement."}
     
     latest = df.iloc[-1]
     prev = df.iloc[-2]
@@ -70,114 +115,107 @@ def identify_candlestick_patterns(df: pd.DataFrame) -> dict:
     lower_wick = min(o, c) - l
     upper_wick = h - max(o, c)
     
-    # Hammer / Pinbar
+    # Hammer
     if lower_wick >= (1.8 * body) and upper_wick <= (0.3 * body) and c >= o:
-        return {"pattern": "Bullish Hammer / Pin Bar", "bias": "Strong Bullish Reversal", "note": "Rejection from lows with heavy buyer support."}
+        return {"pattern": "Bullish Hammer 🔨", "bias": "Bullish", "detail": "Rejection from lows; strong buying pressure detected."}
     
-    # Shooting Star / Inverted Pinbar
+    # Shooting Star
     if upper_wick >= (1.8 * body) and lower_wick <= (0.3 * body) and c <= o:
-        return {"pattern": "Bearish Shooting Star", "bias": "Bearish Rejection", "note": "Failed to sustain highs; seller rejection at peak."}
+        return {"pattern": "Shooting Star ⚡", "bias": "Bearish", "detail": "Rejection from top; heavy selling pressure at resistance."}
     
-    # Bullish Engulfing
+    # Engulfing
     if pc < po and c > o and c >= ph and o <= pc:
-        return {"pattern": "Bullish Engulfing", "bias": "Strong Bullish", "note": "Buyers fully overpower sellers from previous session."}
-    
-    # Bearish Engulfing
+        return {"pattern": "Bullish Engulfing 🟢", "bias": "Bullish", "detail": "Buyers fully overrode the previous session selloff."}
     if pc > po and c < o and c <= pl and o >= pc:
-        return {"pattern": "Bearish Engulfing", "bias": "Strong Bearish", "note": "Sellers wiped out previous candle gains completely."}
+        return {"pattern": "Bearish Engulfing 🔴", "bias": "Bearish", "detail": "Sellers completely crushed the previous session rally."}
     
-    # Strong Momentum Marubozu Candle
     if body >= (0.75 * candle_range):
-        if c > o:
-            return {"pattern": "Bullish Marubozu (Power Candle)", "bias": "Bullish Continuation", "note": "Pure buying power with minimal wicks."}
-        else:
-            return {"pattern": "Bearish Marubozu (Heavy Selling)", "bias": "Bearish Continuation", "note": "Aggressive institutional selloff."}
+        return {"pattern": "Power Momentum Candle 🚀" if c > o else "Heavy Breakdown Candle ⚠️", 
+                "bias": "Bullish" if c > o else "Bearish", 
+                "detail": "Institutional volume driven one-way move."}
             
-    return {"pattern": "Consolidation Candle", "bias": "Rangebound", "note": "Balanced buying & selling; wait for range break."}
+    return {"pattern": "Consolidation Range", "bias": "Neutral", "detail": "Balanced buyers & sellers. Waiting for clear direction."}
 
 def generate_trade_signal(df: pd.DataFrame) -> dict:
     if df.empty or len(df) < 25:
         return {"status": "INSUFFICIENT_DATA"}
         
     latest = df.iloc[-1]
-    prev = df.iloc[-2]
     close = float(latest['Close'])
     ema20 = float(latest['EMA_20'])
     ema50 = float(latest['EMA_50']) if not np.isnan(latest['EMA_50']) else ema20
     rsi = float(latest['RSI'])
-    volume = float(latest['Volume'])
-    vol_avg = float(latest['Vol_SMA_20']) if not np.isnan(latest['Vol_SMA_20']) else volume
     atr = float(latest['ATR_14']) if not np.isnan(latest['ATR_14']) else (close * 0.02)
     
     res_zone = float(latest['Swing_High_20'])
     sup_zone = float(latest['Swing_Low_20'])
     candle_data = identify_candlestick_patterns(df)
     
-    # Key 4 Trading Action Zones
-    scenarios = {
-        "breakout_buy": {
-            "title": "⚡ 1. Fresh Breakout Buy Entry",
-            "price_level": round(res_zone * 1.002, 2),
-            "condition": f"Enter only if daily/1H candle closes decisively above resistance ₹{res_zone:.2f} with volume > 1.2x avg.",
-            "target": round(res_zone + (2.0 * atr), 2)
+    # 4 Key Action Scenarios
+    scenarios = [
+        {
+            "tag": "BUY",
+            "title": "Fresh Breakout Entry",
+            "level": f"Above ₹{res_zone * 1.002:.2f}",
+            "desc": f"Buy only if candle closes above 20D Resistance (₹{res_zone:.2f}) with volume.",
+            "target": f"₹{res_zone + (2.0 * atr):.2f}"
         },
-        "dip_buy": {
-            "title": "🟢 2. Dip Accumulation (Reversal Entry)",
-            "price_level": round(max(ema20, sup_zone), 2),
-            "condition": f"Buy on pullback near 20 EMA / Support (₹{max(ema20, sup_zone):.2f}) if a Bullish Hammer or Green candle forms.",
-            "stop_loss": round(max(ema20, sup_zone) - (1.2 * atr), 2)
+        {
+            "tag": "DIP",
+            "title": "Dip / Support Reversal",
+            "level": f"Near ₹{max(ema20, sup_zone):.2f}",
+            "desc": f"Accumulate on pullback near 20 EMA / Support on bullish candle confirmation.",
+            "sl": f"₹{max(ema20, sup_zone) - (1.2 * atr):.2f}"
         },
-        "profit_zone": {
-            "title": "🔴 3. Reversal / Profit Booking Zone",
-            "price_level": round(res_zone, 2),
-            "condition": f"Strong Resistance at ₹{res_zone:.2f}. If RSI reaches 70+ and wick rejection appears, trail stop-loss or book profits.",
-            "action": "Avoid fresh buy here / Exit longs"
+        {
+            "tag": "EXIT",
+            "title": "Resistance / Profit Booking",
+            "level": f"Near ₹{res_zone:.2f}",
+            "desc": f"Major barrier zone. If RSI > 70 and top wick forms, book profit or trail SL.",
+            "action": "Avoid fresh aggressive buying"
         },
-        "trap_zone": {
-            "title": "⚠️ 4. Danger / Breakdown Trap Zone",
-            "price_level": round(sup_zone, 2),
-            "condition": f"If price breaks below ₹{sup_zone:.2f} and 50 EMA, trend flips bearish. Strict no-entry zone for longs.",
-            "action": "High risk of deep correction down to lower demand"
+        {
+            "tag": "TRAP",
+            "title": "Breakdown / Danger Zone",
+            "level": f"Below ₹{sup_zone:.2f}",
+            "desc": f"Breakdown below swing support indicates risk of sharp fall.",
+            "action": "Strict Exit / No Longs"
         }
-    }
+    ]
     
-    # Scoring Matrix
+    # Verdict Logic
     score = 0
-    reasons = []
-    if close > ema20 and ema20 >= ema50:
-        score += 30
-        reasons.append("Bullish Trend Structure: Price is holding above 20 & 50 EMA")
-    if 50 <= rsi <= 68:
-        score += 25
-        reasons.append(f"Clean Momentum: RSI at {rsi:.1f} (Balanced, not overbought)")
-    if volume >= (1.1 * vol_avg):
-        score += 20
-        reasons.append(f"Volume Confluence: Activity is {(volume/vol_avg):.2f}x of 20-day average")
-    if "Bullish" in candle_data['bias']:
-        score += 25
-        reasons.append(f"Candlestick Trigger: {candle_data['pattern']} detected")
-
-    signal_status = "STRONG BUY SETUP" if score >= 60 else ("AVOID / BEARISH" if close < ema20 and rsi < 45 else "WATCHLIST / DIP WAITING")
+    if close > ema20 and ema20 >= ema50: score += 40
+    if 50 <= rsi <= 68: score += 30
+    if candle_data['bias'] == "Bullish": score += 30
     
+    if score >= 70:
+        verdict = "STRONG BUY SETUP"
+        badge_color = "#00C087"
+    elif close < ema20 and rsi < 45:
+        verdict = "AVOID / WEAK TREND"
+        badge_color = "#EB5757"
+    else:
+        verdict = "SIDEWAYS / WAIT FOR DIP"
+        badge_color = "#F2994A"
+
     stop_loss = round(min(close - (1.5 * atr), sup_zone * 0.995), 2)
     risk = max(close - stop_loss, close * 0.02)
     
     return {
         "status": "SIGNAL_GENERATED",
-        "signal": signal_status,
-        "confidence_score": score,
-        "entry_price": round(close, 2),
+        "verdict": verdict,
+        "badge_color": badge_color,
+        "score": score,
+        "ltp": round(close, 2),
         "stop_loss": stop_loss,
         "target_1": round(close + (risk * 1.5), 2),
         "target_2": round(close + (risk * 2.8), 2),
-        "risk_per_share": round(risk, 2),
-        "reasons": reasons,
         "candle_data": candle_data,
         "scenarios": scenarios,
-        "rsi": round(rsi, 2),
+        "rsi": round(rsi, 1),
         "ema20": round(ema20, 2),
         "ema50": round(ema50, 2),
         "resistance": round(res_zone, 2),
-        "support": round(sup_zone, 2),
-        "volume_ratio": round(volume / vol_avg, 2) if vol_avg > 0 else 1.0
+        "support": round(sup_zone, 2)
     }
