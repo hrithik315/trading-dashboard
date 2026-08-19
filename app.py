@@ -1,193 +1,141 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import requests
-import datetime
-import time
+import streamlit.components.v1 as components
+import json
 
-# 1. Page Config
+# 1. Page Configuration
 st.set_page_config(
     page_title="SANCHETI PRO TERMINAL",
     page_icon="⚡",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # Dark Terminal CSS
 st.markdown("""
 <style>
-    .stApp { background-color: #0A0E17; color: #F1F5F9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    div[data-testid="stMetricValue"] { font-size: 22px; font-weight: 700; color: #00F59B; }
+    .stApp { background-color: #0B0E14; color: #F1F5F9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    div[data-testid="stMetricValue"] { font-size: 20px; font-weight: 700; color: #00F59B; }
     .hero-box {
-        background: #111827;
+        background: #131B2A;
         border: 1px solid #1E293B;
         border-radius: 10px;
-        padding: 15px;
+        padding: 14px 18px;
         margin-bottom: 15px;
     }
-    .badge-green { background: rgba(0,245,155,0.15); color: #00F59B; border: 1px solid #00F59B; padding: 4px 8px; border-radius: 5px; font-weight: bold; }
-    .badge-red { background: rgba(255,75,75,0.15); color: #FF4B4B; border: 1px solid #FF4B4B; padding: 4px 8px; border-radius: 5px; font-weight: bold; }
+    .badge-green { background: rgba(0,245,155,0.15); color: #00F59B; border: 1px solid #00F59B; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Stock Database & Realistic Live Feed Generator
-stock_baselines = {
-    "WIPRO": {"base": 178.85, "lot": 3000, "floor": 171.50, "ceiling": 188.00},
-    "TATAMOTORS": {"base": 985.50, "lot": 575, "floor": 955.00, "ceiling": 1020.00},
-    "RELIANCE": {"base": 2980.00, "lot": 250, "floor": 2920.00, "ceiling": 3050.00},
-    "INFY": {"base": 1820.00, "lot": 400, "floor": 1780.00, "ceiling": 1860.00},
-    "HDFCBANK": {"base": 1640.00, "lot": 550, "floor": 1610.00, "ceiling": 1680.00},
-    "SBIN": {"base": 820.00, "lot": 750, "floor": 800.00, "ceiling": 845.00},
-    "TCS": {"base": 4250.00, "lot": 175, "floor": 4180.00, "ceiling": 4350.00}
+# 2. Sidebar Stock Selector
+st.sidebar.markdown("## ⚡ **SANCHETI PRO**")
+st.sidebar.caption("Institutional Intelligence Engine")
+
+stock_dict = {
+    "WIPRO": "NSE:WIPRO",
+    "TATA MOTORS": "NSE:TATAMOTORS",
+    "RELIANCE": "NSE:RELIANCE",
+    "INFOSYS": "NSE:INFY",
+    "HDFC BANK": "NSE:HDFCBANK",
+    "STATE BANK OF INDIA": "NSE:SBIN",
+    "TCS": "NSE:TCS",
+    "MAHINDRA & MAHINDRA": "NSE:M_M"
 }
 
-st.sidebar.markdown("## ⚡ **SANCHETI PRO**")
-selected_symbol = st.sidebar.selectbox("🎯 Select Stock", list(stock_baselines.keys()), index=0)
-stock_meta = stock_baselines[selected_symbol]
+selected_name = st.sidebar.selectbox("🎯 Select Asset to Trade", list(stock_dict.keys()), index=0)
+tv_symbol = stock_dict[selected_name]
+clean_name = selected_name
 
-# Auto Refresh Engine (Runs every 3 seconds for live ticks)
-refresh_rate = st.sidebar.slider("Tick Refresh Rate (Seconds)", 2, 10, 3)
-st.sidebar.caption("⚡ Live Exchange Simulation Feed Active")
+# Risk Controls
+st.sidebar.markdown("---")
+account_capital = st.sidebar.number_input("Account Capital (₹)", value=50000, step=5000)
+risk_pct = st.sidebar.slider("Max Capital Risk (%)", 0.5, 3.0, 1.0, 0.1)
 
-# 3. Generating Robust 15M Live Candlesticks
-@st.cache_data(ttl=2)
-def generate_realtime_market_candles(symbol):
-    meta = stock_baselines[symbol]
-    base = meta["base"]
-    
-    # Generate 35 continuous 15-min candles
-    timestamps = pd.date_range(end=pd.Timestamp.now(), periods=35, freq="15min")
-    np.random.seed(int(time.time()) // 5 + len(symbol))
-    
-    noise = np.random.normal(0, base * 0.0015, 35)
-    close_prices = base + np.cumsum(noise)
-    open_prices = np.roll(close_prices, 1)
-    open_prices[0] = base - (noise[0] * 0.5)
-    high_prices = np.maximum(open_prices, close_prices) + np.abs(np.random.normal(0, base * 0.001, 35))
-    low_prices = np.minimum(open_prices, close_prices) - np.abs(np.random.normal(0, base * 0.001, 35))
-    volumes = np.random.randint(15000, 180000, 35)
-    
-    df = pd.DataFrame({
-        'Open': open_prices,
-        'High': high_prices,
-        'Low': low_prices,
-        'Close': close_prices,
-        'Volume': volumes
-    }, index=timestamps)
-    
-    # Cumulative VWAP
-    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
-    return df
-
-df = generate_realtime_market_candles(selected_symbol)
-
-# Latest Price Calculations
-cmp = round(float(df['Close'].iloc[-1]), 2)
-vwap = round(float(df['VWAP'].iloc[-1]), 2)
-open_p = round(float(df['Open'].iloc[0]), 2)
-change = round(cmp - open_p, 2)
-pct_change = round((change / open_p) * 100, 2)
-demand_floor = round(float(df['Low'].min()), 2)
-supply_ceiling = round(float(df['High'].max()), 2)
-
-# Top Bar Hero Snapshot
+# 3. Top Snapshot Bar
 st.markdown(f"""
 <div class="hero-box">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
-            <h1 style="margin: 0; font-size: 26px; color: #FFFFFF;">{selected_symbol} <span style="font-size: 14px; color: #00F59B;">● LIVE (NSE)</span></h1>
-            <span class="{'badge-green' if cmp >= vwap else 'badge-red'}">
-                {'🟢 SMART MONEY ACCUMULATION' if cmp >= vwap else '🔴 INSTITUTIONAL TRAP ZONE'}
-            </span>
+            <span class="badge-green">LIVE NSE STREAM</span>
+            <h2 style="margin: 6px 0 0 0; color: #FFFFFF;">{clean_name} <span style="font-size: 14px; color: #38BDF8;">[{tv_symbol}]</span></h2>
         </div>
-        <div style="text-align: right;">
-            <div style="font-size: 30px; font-weight: 800; color: {'#00F59B' if change >= 0 else '#FF4B4B'};">₹{cmp:,.2f}</div>
-            <div style="font-size: 15px; color: {'#00F59B' if change >= 0 else '#FF4B4B'};">
-                {'+' if change >= 0 else ''}{change} ({'+' if pct_change >= 0 else ''}{pct_change}%)
-            </div>
+        <div style="text-align: right; color: #94A3B8; font-size: 13px;">
+            Professional Drawing Canvas • Full Indicator Suite Active
         </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Metrics Grid
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Live LTP", f"₹{cmp}")
-c2.metric("Institutional VWAP", f"₹{vwap}")
-c3.metric("Demand Floor (SL)", f"₹{demand_floor}")
-c4.metric("Supply Target", f"₹{supply_ceiling}")
-
-# Structured Tabs
-t_chart, t_ai, t_hedge, t_rescue = st.tabs([
-    "📊 Real-Time Candlestick Chart",
-    "🤖 Institutional AI Engine",
+# 4. 4 Clean Tabs
+tab_chart, tab_ai, tab_hedge, tab_rescue = st.tabs([
+    "📊 Pro TradingView Chart (With All Tools)",
+    "🧠 Smart Money & Traps",
     "🛡️ Hedging & Spreads",
-    "⚖️ Averaging Calculator"
+    "⚖️ Wipro Averaging Engine"
 ])
 
-with t_chart:
-    st.markdown(f"#### 📈 15-Minute Live Flow: **{selected_symbol}**")
+# TAB 1: FULL OFFICIAL TRADINGVIEW TECHNICAL CANVAS
+with tab_chart:
+    st.markdown(f"#### 📈 Live Real-Time Interactive Canvas: **{tv_symbol}**")
+    st.caption("💡 Side toolbar se Trendlines, Fibonacci, Brush use karein; Top bar se Indicators (RSI, VWAP, MACD) lagayein.")
     
-    # Native Plotly Candlestick (100% Reliable, Never Fails)
-    fig = go.Figure()
-    
-    # Candlestick Trace
-    fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df['Open'],
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
-        name="Price",
-        increasing_line_color='#00F59B',
-        decreasing_line_color='#FF4B4B'
-    ))
-    
-    # Institutional VWAP Line
-    fig.add_trace(go.Scatter(
-        x=df.index,
-        y=df['VWAP'],
-        mode='lines',
-        name='Institutional VWAP',
-        line=dict(color='#38BDF8', width=2)
-    ))
-    
-    # Demand and Supply Levels
-    fig.add_hline(y=demand_floor, line_dash="dash", line_color="#00F59B", annotation_text="Demand Floor")
-    fig.add_hline(y=supply_ceiling, line_dash="dash", line_color="#FF4B4B", annotation_text="Supply Ceiling")
-    
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0A0E17",
-        plot_bgcolor="#0A0E17",
-        height=480,
-        margin=dict(l=10, r=10, t=10, b=10),
-        xaxis_rangeslider_visible=False,
-        yaxis=dict(gridcolor="#1E293B"),
-        xaxis=dict(gridcolor="#1E293B")
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
+    # Official TradingView Advanced Real-Time Charting Widget
+    tv_embed_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <style>
+        html, body {{ margin: 0; padding: 0; width: 100%; height: 100%; background-color: #0B0E14; overflow: hidden; }}
+        #tv_chart_container {{ width: 100%; height: 100%; }}
+      </style>
+    </head>
+    <body>
+      <div id="tv_chart_container"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript">
+        new TradingView.widget({{
+          "autosize": true,
+          "symbol": "{tv_symbol}",
+          "interval": "15",
+          "timezone": "Asia/Kolkata",
+          "theme": "dark",
+          "style": "1",
+          "locale": "in",
+          "toolbar_bg": "#0B0E14",
+          "enable_publishing": false,
+          "allow_symbol_change": true,
+          "hide_side_toolbar": false,
+          "withdateranges": true,
+          "save_image": true,
+          "studies": [
+            "VWAP@tv-basicstudies",
+            "MASimple@tv-basicstudies"
+          ],
+          "container_id": "tv_chart_container"
+        }});
+      </script>
+    </body>
+    </html>
+    """
+    components.html(tv_embed_code, height=620)
 
-with t_ai:
-    st.markdown("### 🤖 Institutional Order Block Thesis")
-    st.write(f"1. **Smart Money Position:** Price (₹{cmp}) is **{'ABOVE' if cmp>=vwap else 'BELOW'}** VWAP (₹{vwap}).")
-    st.write(f"2. **Trap Detection:** Stop-loss hunt zone is below **₹{demand_floor}**. Do not exit on panic wicks.")
-    st.write(f"3. **Execution Plan:** Target upside move towards **₹{supply_ceiling}** with invalidation at **₹{demand_floor}**.")
+with tab_ai:
+    st.markdown("### 🤖 Institutional Order Flow Rules")
+    st.markdown(f"""
+    * **Structure Reading:** Stock symbol **{tv_symbol}** exchange real-time tick par sync hai.
+    * **Smart Money Rule:** Chart par **VWAP (Blue Line)** ke upar price close hone par hi momentum buy execute karein.
+    * **Trap Shield:** Previous Day High / Low ke break hote hi immediate entry lene se bachein (90% retail liquidity sweeps fake hote hain).
+    """)
 
-with t_hedge:
-    st.markdown("### 🛡️ Defined-Risk Spreads")
-    base_strike = round(cmp / 10) * 10 if cmp > 100 else round(cmp)
-    st.write(f"• **Primary ATM Leg:** Buy ₹{base_strike} CE")
-    st.write(f"• **Hedge Protection:** Sell ₹{base_strike + 10} CE")
-    st.caption("Max loss strictly capped to net debit. Theta decay protected.")
+with tab_hedge:
+    st.markdown("### 🛡️ Defined-Risk Options Hedging")
+    st.write("• **Bullish Bias:** ATM Bull Call Spread (Buy ATM CE + Sell OTM CE)")
+    st.write("• **Bearish Bias:** ATM Bear Put Spread (Buy ATM PE + Sell OTM PE)")
+    st.caption("Never trade single-leg naked options on high volatility days.")
 
-with t_rescue:
-    st.markdown("### ⚖️ Position Sizing & Averaging Matrix")
-    st.write(f"• **Stage 1 Allocation (30%):** ₹{cmp}")
-    st.write(f"• **Stage 2 Demand Allocation (70%):** ₹{demand_floor}")
-    st.write(f"• **Target Exit:** ₹{round(cmp + (cmp * 0.04), 1)}")
-
-# Trigger rerun for live auto-tick
-time.sleep(refresh_rate)
-st.rerun()
+with tab_rescue:
+    st.markdown("### ⚖️ Position Sizing & Rescue Matrix")
+    max_risk = (account_capital * risk_pct) / 100
+    st.metric("1% Capital Risk Limit", f"₹{max_risk:,.0f}")
+    st.write("• **Rule:** Agar stock 3% girta hai, toh max holding loss ₹" + f"{max_risk:.0f}" + " se zyada nahi hona chahiye.")
+    st.write("• **Averaging Rule:** Pehla 30% quantity breakout pullback par, aur baaki 70% quantity institutional demand floor par hi enter karein.")
