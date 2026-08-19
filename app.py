@@ -42,14 +42,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Asset Matrix
+# 2. Real Exchange Market Base Anchors (Actual NSE Market Prices)
 asset_universe = {
-    "WIPRO": {"base": 178.85, "tick_range": 0.35},
-    "TATA MOTORS": {"base": 985.50, "tick_range": 1.20},
-    "RELIANCE": {"base": 2980.00, "tick_range": 3.50},
-    "INFOSYS": {"base": 1820.00, "tick_range": 2.10},
-    "HDFC BANK": {"base": 1640.00, "tick_range": 1.80},
-    "STATE BANK": {"base": 820.00, "tick_range": 0.95}
+    "WIPRO": {"base": 535.00, "tick_range": 1.10},
+    "TATA MOTORS": {"base": 985.50, "tick_range": 2.20},
+    "RELIANCE": {"base": 2980.00, "tick_range": 5.50},
+    "INFOSYS": {"base": 1820.00, "tick_range": 3.10},
+    "HDFC BANK": {"base": 1640.00, "tick_range": 2.80},
+    "STATE BANK": {"base": 820.00, "tick_range": 1.50}
 }
 
 # 3. Sidebar Tool Configurator (20+ Modular AI Quant Tools)
@@ -84,7 +84,7 @@ with st.sidebar.expander("🏦 4. Smart Money Concepts (SMC)", expanded=True):
     show_fvg = st.checkbox("Fair Value Gaps (FVG Imbalance)", value=True)
     show_pivots = st.checkbox("Classic Floor Camarilla Pivot Levels", value=False)
 
-# 4. Data Generation & Math Engine for 22+ Indicators
+# 4. Data Generation & Math Engine
 meta = asset_universe[selected_asset]
 base = meta["base"]
 np.random.seed(int(time.time() // 3) + len(selected_asset))
@@ -100,44 +100,39 @@ vols = np.random.randint(40000, 250000, n_bars)
 
 df = pd.DataFrame({'Open': opens, 'High': highs, 'Low': lows, 'Close': closes, 'Volume': vols}, index=dates)
 
-# Math Calculations for all 20+ Tools
-# 1. VWAP
+# Technical Indicators Math
 df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
-# 2. EMAs
 df['EMA9'] = df['Close'].ewm(span=9, adjust=False).mean()
 df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
 df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
 df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
-# 3. Bollinger Bands
+
 df['SMA20'] = df['Close'].rolling(window=20).mean()
 df['STD20'] = df['Close'].rolling(window=20).std()
 df['BB_Upper'] = df['SMA20'] + (df['STD20'] * 2)
 df['BB_Lower'] = df['SMA20'] - (df['STD20'] * 2)
-# 4. RSI (14)
+
 delta = df['Close'].diff()
 gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
 loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
 rs = gain / (loss + 1e-9)
 df['RSI'] = 100 - (100 / (1 + rs))
-# 5. MACD
+
 exp1 = df['Close'].ewm(span=12, adjust=False).mean()
 exp2 = df['Close'].ewm(span=26, adjust=False).mean()
 df['MACD'] = exp1 - exp2
 df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
 df['MACD_Hist'] = df['MACD'] - df['Signal']
 
-# Key Level Calculations (Fibonacci & Swings)
 high_swing = float(df['High'].max())
 low_swing = float(df['Low'].min())
 diff_swing = high_swing - low_swing
 
-# Fibonacci Retracement Levels
 fib_0 = high_swing
 fib_236 = high_swing - 0.236 * diff_swing
 fib_382 = high_swing - 0.382 * diff_swing
 fib_500 = high_swing - 0.500 * diff_swing
 fib_618 = high_swing - 0.618 * diff_swing
-fib_786 = high_swing - 0.786 * diff_swing
 fib_100 = low_swing
 fib_1618 = high_swing + 0.618 * diff_swing
 
@@ -169,7 +164,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 6. Centerstage AI Automated Fibonacci & SMC Reading
+# 6. AI Fibonacci & SMC Reading
 st.markdown(f"""
 <div class="ai-brain-box">
     <b style="color:#38BDF8; font-size:15px;">🤖 AI QUANT SYNTHESIS (FIBONACCI & SMC)</b><br>
@@ -181,21 +176,18 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 7. Multi-Pane Plotly Chart (Main Chart + RSI/MACD Subplots)
+# 7. Multi-Pane Plotly Chart
 row_heights = [0.7, 0.3] if (show_rsi or show_macd) else [1.0]
 fig = make_subplots(rows=2 if (show_rsi or show_macd) else 1, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=row_heights)
 
-# Base Candlestick
 fig.add_trace(go.Candlestick(
     x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
     name="Candles", increasing_line_color='#00F59B', decreasing_line_color='#FF4B4B'
 ), row=1, col=1)
 
-# Tool: VWAP
 if show_vwap:
     fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], mode='lines', name='VWAP', line=dict(color='#38BDF8', width=2)), row=1, col=1)
 
-# Tool: EMAs
 if show_ema9:
     fig.add_trace(go.Scatter(x=df.index, y=df['EMA9'], mode='lines', name='9 EMA', line=dict(color='#F59E0B', width=1.5)), row=1, col=1)
 if show_ema21:
@@ -205,12 +197,10 @@ if show_ema50:
 if show_ema200:
     fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], mode='lines', name='200 EMA', line=dict(color='#E2E8F0', width=2)), row=1, col=1)
 
-# Tool: Bollinger Bands
 if show_bollinger and not df['BB_Upper'].isna().all():
     fig.add_trace(go.Scatter(x=df.index, y=df['BB_Upper'], mode='lines', name='BB Upper', line=dict(color='rgba(255,255,255,0.3)', dash='dot')), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['BB_Lower'], mode='lines', name='BB Lower', line=dict(color='rgba(255,255,255,0.3)', dash='dot')), row=1, col=1)
 
-# Tool: Fibonacci Retracement Lines
 if show_fib:
     fig.add_hline(y=fib_0, line_dash="solid", line_color="#94A3B8", annotation_text=f"Fib 0.0 (₹{fib_0:.1f})", row=1, col=1)
     fig.add_hline(y=fib_236, line_dash="dash", line_color="#64748B", annotation_text=f"Fib 0.236 (₹{fib_236:.1f})", row=1, col=1)
@@ -222,7 +212,6 @@ if show_fib:
 if show_fib_ext:
     fig.add_hline(y=fib_1618, line_dash="dot", line_color="#A855F7", annotation_text=f"Fib Ext 1.618 (₹{fib_1618:.1f})", row=1, col=1)
 
-# Tool: Subplot (RSI / MACD)
 if show_rsi and not (show_rsi and show_macd):
     fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI (14)", line=dict(color='#F43F5E', width=1.5)), row=2, col=1)
     fig.add_hline(y=70, line_dash="dash", line_color="rgba(255,75,75,0.4)", row=2, col=1)
@@ -239,8 +228,8 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# 8. 22+ Tools Reference Table
-st.markdown("#### 🛠️ Real-Time Indicator Values (22+ Tool Confluence)")
+# 8. Indicator Metrics Row
+st.markdown("#### 🛠️ Real-Time Indicator Values")
 t1, t2, t3, t4, t5 = st.columns(5)
 t1.metric("Fib 0.618 Golden", f"₹{fib_618:.2f}")
 t2.metric("Institutional VWAP", f"₹{vwap:.2f}")
